@@ -1,0 +1,254 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import os
+from datetime import datetime, timedelta
+
+# --- weather_analysis.py ---
+# Goal: Analyze and visualize fictional weather data,
+# simulating a dataset from Visual Crossing Weather.
+
+def generate_weather_data(num_days=730, filename="weather_data.csv"):
+    """
+    Generates synthetic weather data resembling a Visual Crossing Weather dataset.
+    Data will cover approximately `num_days` starting from a fixed date.
+    """
+    print(f"Generating synthetic weather data to '{filename}'...")
+
+    data = []
+    start_date = datetime(2022, 1, 1) # Start date for the synthetic data
+
+    for i in range(num_days):
+        current_date = start_date + timedelta(days=i)
+        
+        # Simulate temperature (e.g., daily high/low)
+        # Add some seasonal variation (sine wave) and random noise
+        # Assuming average annual temp around 10-15 C, range of 20-30 C
+        avg_temp = 12 + 10 * np.sin(2 * np.pi * (current_date.timetuple().tm_yday / 365.25))
+        temp_max = avg_temp + np.random.uniform(2, 8) # Max temp
+        temp_min = avg_temp - np.random.uniform(2, 8) # Min temp
+
+        # Simulate precipitation (mm)
+        # Mostly low, with occasional higher values for rainy days
+        if np.random.rand() < 0.3: # 30% chance of rain
+            precip = np.random.uniform(0, 15)
+        else:
+            precip = 0.0
+
+        # Simulate wind speed (km/h)
+        wind_speed = np.random.uniform(5, 30)
+
+        # Simulate humidity (%)
+        humidity = np.random.uniform(50, 95)
+
+        # Simulate conditions (e.g., Clear, Cloudy, Rain, Snow)
+        conditions_options = ['Clear', 'Partially Cloudy', 'Overcast', 'Rain', 'Snow']
+        if precip > 5:
+            conditions = np.random.choice(['Rain', 'Heavy Rain'])
+        elif current_date.month in [12, 1, 2] and temp_max < 0 and np.random.rand() < 0.2:
+            conditions = np.random.choice(['Snow', 'Light Snow'])
+        else:
+            conditions = np.random.choice(conditions_options[:-2], p=[0.5, 0.3, 0.2]) # Clear, Partially Cloudy, Overcast
+
+        data.append([
+            current_date.strftime('%Y-%m-%d'),
+            temp_max,
+            temp_min,
+            precip,
+            wind_speed,
+            humidity,
+            conditions
+        ])
+
+    df = pd.DataFrame(data, columns=[
+        'Date', 'TempMax', 'TempMin', 'Precipitation', 'WindSpeed', 'Humidity', 'Conditions'
+    ])
+
+    # Introduce some missing values and errors for cleaning demonstration
+    for _ in range(num_days // 20): # ~5% missing values
+        row_idx = np.random.randint(0, num_days)
+        col_idx = np.random.choice([1, 2, 3, 4, 5, 6]) # TempMax, TempMin, Precipitation, WindSpeed, Humidity, Conditions
+        if col_idx == 1: df.loc[row_idx, 'TempMax'] = 'N/A' # Simulate bad data
+        elif col_idx == 3: df.loc[row_idx, 'Precipitation'] = -1.0 # Simulate negative precip
+        else: df.loc[row_idx, df.columns[col_idx]] = np.nan # Simulate other missing values
+
+    df.to_csv(filename, index=False, encoding='utf-8')
+    print(f"Data successfully saved to '{filename}'.")
+    return df
+
+def analyze_weather_data(file_path="weather_data.csv"):
+    """
+    Loads, cleans, analyzes, and visualizes weather data.
+    """
+    print("--- Starting Weather Data Analysis ---")
+
+    # Check if the file exists, if not, generate it
+    if not os.path.exists(file_path):
+        print(f"File '{file_path}' not found. Generating data...")
+        df = generate_weather_data(filename=file_path)
+    else:
+        print(f"Loading data from file '{file_path}'...")
+        try:
+            df = pd.read_csv(file_path, encoding='utf-8')
+            print("Data loaded successfully.")
+        except Exception as e:
+            print(f"An error occurred while loading data: {e}")
+            print("Try deleting the CSV file and running again to generate new data.")
+            return
+
+    print("\n--- Data Preview (first 5 rows) ---")
+    print(df.head())
+    print("\n--- Data Information before Cleaning ---")
+    print(df.info())
+    print("\n--- Missing Values before Cleaning ---")
+    print(df.isnull().sum())
+
+    # --- Data Cleaning ---
+    print("\n### Section 1: Data Cleaning ###")
+
+    # Convert 'Date' column to datetime type
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+    # Drop rows where 'Date' could not be parsed
+    initial_rows = len(df)
+    df.dropna(subset=['Date'], inplace=True)
+    if len(df) < initial_rows:
+        print(f"Removed {initial_rows - len(df)} rows with missing or invalid dates.")
+    initial_rows = len(df)
+
+    # Convert numerical columns and handle errors/invalid values
+    for col in ['TempMax', 'TempMin', 'Precipitation', 'WindSpeed', 'Humidity']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        # Handle negative precipitation (set to 0 or NaN, then drop/fill)
+        if col == 'Precipitation':
+            df.loc[df[col] < 0, col] = np.nan # Set negative precipitation to NaN
+        
+        # Fill missing numerical values with the mean for simplicity
+        if df[col].isnull().any():
+            mean_val = df[col].mean()
+            df[col].fillna(mean_val, inplace=True)
+            print(f"Filled missing values in '{col}' with mean: {mean_val:.2f}.")
+
+    # Fill missing 'Conditions' with 'Unknown' or mode
+    if df['Conditions'].isnull().any():
+        df['Conditions'].fillna('Unknown', inplace=True)
+        print(f"Filled missing values in 'Conditions' as 'Unknown'.")
+
+    # Remove duplicates based on 'Date' (assuming one entry per day)
+    initial_rows_before_duplicates = len(df)
+    df.drop_duplicates(subset=['Date'], inplace=True)
+    if len(df) < initial_rows_before_duplicates:
+        print(f"Removed {initial_rows_before_duplicates - len(df)} duplicate date entries.")
+
+    # Sort data by date
+    df.sort_values(by='Date', inplace=True)
+    print("\nData sorted by Date.")
+
+    print("\n--- Data Information after Cleaning ---")
+    print(df.info())
+    print("\n--- Missing Values after Cleaning ---")
+    print(df.isnull().sum())
+
+    # --- Data Analysis ---
+    print("\n### Section 2: Data Analysis ###")
+
+    # 1. Overall Average Temperatures
+    avg_temp_max = df['TempMax'].mean()
+    avg_temp_min = df['TempMin'].mean()
+    avg_precip = df['Precipitation'].mean()
+    print(f"\nOverall Average Max Temperature: {avg_temp_max:.2f}°C")
+    print(f"Overall Average Min Temperature: {avg_temp_min:.2f}°C")
+    print(f"Overall Average Daily Precipitation: {avg_precip:.2f} mm")
+
+    # 2. Monthly Average Temperatures
+    df['YearMonth'] = df['Date'].dt.to_period('M')
+    monthly_avg_temp_max = df.groupby('YearMonth')['TempMax'].mean()
+    monthly_avg_temp_min = df.groupby('YearMonth')['TempMin'].mean()
+    monthly_total_precip = df.groupby('YearMonth')['Precipitation'].sum()
+    
+    print("\n--- Monthly Average Max Temperatures (first 5 entries) ---")
+    print(monthly_avg_temp_max.head())
+    print("\n--- Monthly Total Precipitation (first 5 entries) ---")
+    print(monthly_total_precip.head())
+
+    # 3. Extreme Phenomena (e.g., hottest day, coldest day, highest precipitation)
+    hottest_day = df.loc[df['TempMax'].idxmax()]
+    coldest_day = df.loc[df['TempMin'].idxmin()]
+    wettest_day = df.loc[df['Precipitation'].idxmax()]
+
+    print(f"\n--- Extreme Weather Events ---")
+    print(f"Hottest Day: {hottest_day['Date'].strftime('%Y-%m-%d')} with Max Temp {hottest_day['TempMax']:.2f}°C")
+    print(f"Coldest Day: {coldest_day['Date'].strftime('%Y-%m-%d')} with Min Temp {coldest_day['TempMin']:.2f}°C")
+    print(f"Wettest Day: {wettest_day['Date'].strftime('%Y-%m-%d')} with {wettest_day['Precipitation']:.2f} mm Precipitation")
+
+    # 4. Climate Trends (e.g., yearly average temperature)
+    df['Year'] = df['Date'].dt.year
+    yearly_avg_temp = df.groupby('Year')[['TempMax', 'TempMin']].mean()
+    print("\n--- Yearly Average Temperatures ---")
+    print(yearly_avg_temp)
+
+    # 5. Frequency of Weather Conditions
+    conditions_counts = df['Conditions'].value_counts()
+    print("\n--- Frequency of Weather Conditions ---")
+    print(conditions_counts)
+
+    # --- Data Visualization ---
+    print("\n### Section 3: Data Visualization ###")
+
+    # Set plot style
+    sns.set_style("whitegrid")
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['figure.figsize'] = (12, 7)
+    plt.rcParams['figure.dpi'] = 100
+
+    # Plot 1: Monthly Average Temperatures Trend
+    plt.figure(figsize=(14, 7))
+    monthly_avg_temp_max.plot(kind='line', marker='o', linestyle='-', color='red', label='Avg Max Temp')
+    monthly_avg_temp_min.plot(kind='line', marker='o', linestyle='-', color='blue', label='Avg Min Temp')
+    plt.title('Monthly Average Temperature Trends', fontsize=16)
+    plt.xlabel('Month', fontsize=12)
+    plt.ylabel('Temperature (°C)', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 2: Monthly Total Precipitation
+    plt.figure(figsize=(14, 7))
+    monthly_total_precip.plot(kind='bar', color='skyblue')
+    plt.title('Monthly Total Precipitation', fontsize=16)
+    plt.xlabel('Month', fontsize=12)
+    plt.ylabel('Precipitation (mm)', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(axis='y')
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 3: Yearly Average Temperatures
+    plt.figure(figsize=(10, 6))
+    yearly_avg_temp.plot(kind='line', marker='o', linestyle='-', color=['darkorange', 'darkgreen'])
+    plt.title('Yearly Average Temperatures', fontsize=16)
+    plt.xlabel('Year', fontsize=12)
+    plt.ylabel('Temperature (°C)', fontsize=12)
+    plt.xticks(yearly_avg_temp.index)
+    plt.grid(True)
+    plt.legend(['Avg Max Temp', 'Avg Min Temp'])
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 4: Distribution of Weather Conditions
+    plt.figure(figsize=(10, 6))
+    sns.countplot(y='Conditions', data=df, order=df['Conditions'].value_counts().index, palette='coolwarm')
+    plt.title('Frequency of Weather Conditions', fontsize=16)
+    plt.xlabel('Count', fontsize=12)
+    plt.ylabel('Condition', fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    print("\n--- Weather Data Analysis Completed ---")
+
+if __name__ == "__main__":
+    # Run the analysis. If weather_data.csv does not exist, it will be generated.
+    analyze_weather_data()
